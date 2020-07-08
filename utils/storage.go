@@ -6,7 +6,12 @@ import (
 )
 
 type Storage struct {
-	Server Server
+	Users map[string]User
+}
+
+func LoadOrCreateStorage() Storage {
+	s := Storage{make(map[string]User)}
+	return s
 }
 
 type FObject struct {
@@ -24,7 +29,7 @@ type FObject struct {
 }
 
 func (s *Storage) SaveObject(r *UserRequestPackage, data *[]byte) error {
-	u, ok := s.Server.Users[r.ClientUser.Username]
+	u, ok := s.Users[r.ClientUser.Username]
 	if !ok {
 		return errors.New("User Not Found")
 	}

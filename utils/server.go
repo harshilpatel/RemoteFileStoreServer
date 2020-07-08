@@ -12,19 +12,21 @@ import (
 type Server struct {
 	Address string
 	Port    string
-	Users   map[string]User
+	// Users   map[string]User
 	Config  ConfigCloudStore
+	Storage Storage
 }
 
 // CreateServer creates a new server
-func CreateServer(c ConfigCloudStore) Server {
+func CreateServer(c ConfigCloudStore, s Storage) Server {
 
 	log.Printf("Creating Server at localhost:1234")
 	return Server{
 		Address: viper.GetString("server.Address"),
 		Port:    viper.GetString("server.Port"),
-		Users:   make(map[string]User),
+		// Users:   make(map[string]User),
 		Config:  c,
+		Storage: s,
 	}
 }
 
@@ -36,11 +38,12 @@ func (s *Server) Register(obj interface{}) {
 }
 
 func (s *Server) RegisterUser(u User) {
-	s.Users[u.Username] = u
+	s.Storage.Users[u.Username] = u
+	viper.WriteConfig()
 }
 
 func (s *Server) UnRegisterUser(u User) {
-	delete(s.Users, u.Username)
+	delete(s.Storage.Users, u.Username)
 }
 
 func (s *Server) Listen() {

@@ -26,19 +26,22 @@ func (a *Arth) Mul(args *Args, reply *int) error {
 
 func main() {
 
-	// arth := new(Arth)
-	// rpc.Register(arth)
-	// rpc.HandleHTTP()
-
 	viper.SetConfigName("server_config.json")
 	viper.SetConfigType("json")
 
-	c := utils.GetConfiguration()
-	viper.AddConfigPath(c.ServerBasePath)
+	config := utils.GetConfiguration()
+	viper.AddConfigPath(config.ServerBasePath)
 
-	server := utils.CreateServer(c)
-	s := utils.Storage{server}
-	server.Register(&s)
+	storage := utils.LoadOrCreateStorage()
+	server := utils.CreateServer(config, storage)
+
+	sampleUser := utils.User{
+		Username: "1234",
+		Key:      "1234",
+	}
+
+	server.RegisterUser(sampleUser)
+	server.Register(&storage)
 
 	if err := viper.ReadInConfig(); err != nil {
 		panic(fmt.Errorf("Could not open the config file %s", err))
@@ -47,8 +50,10 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	<-sigs
 
+	server.Listen()
+
+	<-sigs // receive shutdown signal
 	log.Printf("Shutting down Server")
 
 	viper.Set("server", server)
