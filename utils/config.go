@@ -1,13 +1,17 @@
 package utils
 
+import (
+	"github.com/spf13/viper"
+)
+
 type ConfigCloudStore struct {
-	ServerDbPath   string
-	ServerBasePath string `default:"/Users/harshilpatel/Projects/test/cloud-store-server"`
+	ServerDbPath string
+	BasePath     string
 }
 
 func GetConfiguration() ConfigCloudStore {
 	return ConfigCloudStore{
-		ServerDbPath:   "/Users/harshilpatel/Projects/test/cloud-store-server",
-		ServerBasePath: "/Users/harshilpatel/Projects/test/cloud-store-server",
+		ServerDbPath: viper.GetString("server.Config.BasePath"),
+		BasePath:     viper.GetString("server.Config.BasePath"),
 	}
 }

@@ -1,25 +1,27 @@
 package utils
 
 import (
-	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/sirupsen/logrus"
 )
 
-// type User struct {
-// 	Username     string
-// 	Key          string
-// 	BaseFilePath string
-// 	ConfigPath   string
-// 	Objects      map[string]FObject
-// }
+type User struct {
+	Username        string
+	Key             string
+	BaseFilePath    string
+	ConfigPath      string
+	Objects         map[string]FObject
+	ClientInstances map[string]ClientInstance
+}
 
 func (u *User) SetUp(c ConfigCloudStore) {
-	base_dir := filepath.Join(c.ServerBasePath, u.Username, "files")
-	config_path := filepath.Join(c.ServerBasePath, u.Username, "config.txt")
+	base_dir := filepath.Join(c.BasePath, u.Username, "files")
+	config_path := filepath.Join(c.BasePath, u.Username, "config.txt")
 	u.BaseFilePath = base_dir
 
-	log.Printf("Setting up Dirs for User: %v path:%v \n", u.Username, u.BaseFilePath)
+	logrus.Printf("Setting up Dirs for User: %v path:%v \n", u.Username, u.BaseFilePath)
 	if _, e := os.Lstat(base_dir); os.IsNotExist(e) {
 		os.MkdirAll(base_dir, 0777)
 		os.Create(config_path)
@@ -27,11 +29,11 @@ func (u *User) SetUp(c ConfigCloudStore) {
 }
 
 func (u *User) CreateUserDir(c ConfigCloudStore) {
-	os.Mkdir(filepath.Join(c.ServerBasePath, u.Username, "files"), os.ModeDir)
+	os.Mkdir(filepath.Join(c.BasePath, u.Username, "files"), os.ModeDir)
 }
 
 func (u *User) CreateFile(c ConfigCloudStore, filename string) {
-	os.Create(filepath.Join(c.ServerBasePath, u.Username, "file", filename))
+	os.Create(filepath.Join(c.BasePath, u.Username, "file", filename))
 }
 
 func (u *User) SaveObject(f *FObject, data []byte) {
@@ -49,9 +51,9 @@ func (u *User) SaveObject(f *FObject, data []byte) {
 	// buf := make([]byte, 1024)
 	if err != nil {
 		if l, err := file.Write(data); err != nil {
-			log.Printf("%v Bytes written to file %v", l, f.Name)
+			logrus.Printf("%v Bytes written to file %v", l, f.Name)
 		} else {
-			log.Printf("error in writing to file %v", err)
+			logrus.Printf("error in writing to file %v", err)
 		}
 	}
 }
