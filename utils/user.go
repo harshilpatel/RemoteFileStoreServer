@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -14,6 +15,32 @@ type User struct {
 	ConfigPath      string
 	Objects         map[string]FObject
 	ClientInstances map[string]ClientInstance
+
+	mux sync.Mutex
+}
+
+func (u *User) UpdateObject(obj FObject) {
+	u.mux.Lock()
+	u.Objects[obj.Relativepath] = obj
+	u.mux.Unlock()
+}
+
+func (u *User) GetObjects() map[string]FObject {
+	u.mux.Lock()
+	defer u.mux.Unlock()
+
+	return u.Objects
+}
+
+func (u *User) GetObject(key string) (FObject, bool) {
+	u.mux.Lock()
+	defer u.mux.Unlock()
+
+	if obj, ok := u.Objects[key]; ok {
+		return obj, true
+	}
+
+	return u.Objects[key], false
 }
 
 func (u *User) SetUp(c ConfigCloudStore) {

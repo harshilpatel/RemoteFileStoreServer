@@ -35,6 +35,9 @@ func main() {
 	storage := utils.LoadOrCreateStorage(config)
 	server := utils.CreateServer(config, storage)
 
+	// NOTE: GlobalServer does not server any purpose. This was written to ensure storage receives server. Time constraint :).
+	utils.GlobalServer = server
+
 	// sampleUser := utils.User{
 	// 	Username: "1234",
 	// 	Key:      "1234",
@@ -48,6 +51,7 @@ func main() {
 	// }
 
 	// server.RegisterUser(sampleUser1)
+	server.InitiateWatchers()
 
 	server.Housekeeping()
 
@@ -59,6 +63,9 @@ func main() {
 	server.Listen()
 
 	<-sigs // receive shutdown signal
+	server.Watcher.Close()
+	server.Watcher = nil
+
 	viper.Set("server", server)
 	viper.WriteConfig()
 

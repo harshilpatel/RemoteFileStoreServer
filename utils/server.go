@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/spf13/viper"
@@ -22,6 +25,7 @@ type Server struct {
 	// Users   map[string]User
 	Config  ConfigCloudStore
 	Storage Storage
+	Watcher *fsnotify.Watcher
 }
 
 // CreateServer creates a new server
@@ -56,11 +60,11 @@ func (s *Server) UpdateHashForObjects() {
 		log.WithFields(log.Fields{
 			"User": u.Username,
 		}).Infof("Parsing User for hash user objects")
-		for relativePath, obj := range u.Objects {
+		for _, obj := range u.Objects {
 			obj.UpdateHashForObject(u, s.Config)
 			obj.UpdateHashForObjectBlocks(u, s.Config)
 
-			u.Objects[relativePath] = obj
+			u.UpdateObject(obj)
 		}
 	}
 
@@ -112,7 +116,7 @@ func (s *Server) Housekeeping() {
 								Version:      0,
 							}
 
-							u.Objects[relativePath] = obj
+							u.UpdateObject(obj)
 						}
 
 						return nil
@@ -164,10 +168,12 @@ func (s *Server) Housekeeping() {
 						}
 
 						userObject.Version = int64(version)
-						user.Objects[configFileRelativePath] = userObject
+						// log.Printf("%v %v", userObject.Relativepath, int64(version))
+						user.UpdateObject(userObject)
 					}
 
 				}
+				log.Printf("Parsed objects from Config: %v \n", len(configUserObjectsMap))
 			}
 
 		}
@@ -190,4 +196,69 @@ func (s *Server) Listen() {
 	}
 
 	go http.Serve(l, nil)
+}
+
+func (s *Server) InitiateWatchers() {
+	watcher, err := fsnotify.NewWatcher()
+
+	if err != nil {
+		return
+	}
+
+	s.Watcher = watcher
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// logrus.Info("event:", event)
+				if event.Op == fsnotify.Chmod {
+					// logrus.Info("modified file:", event.Name)
+					for _, u := range s.Storage.getUsers() {
+						for _, obj := range u.GetObjects() {
+							if obj.GetRealPath(u, s.Config) == event.Name {
+								obj.Version++
+								obj.UpdateHashForObject(u, s.Config)
+								obj.UpdateHashForObjectBlocks(u, s.Config)
+								u.UpdateObject(obj)
+
+								break
+							}
+						}
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+
+				logrus.Info("error:", err)
+			}
+		}
+	}()
+
+	for _, u := range s.Storage.Users {
+		for _, o := range u.Objects {
+			realPath := o.GetRealPath(u, s.Config)
+			watcher.Add(realPath)
+		}
+	}
+}
+
+func (s *Server) PauseWatchers(realPath string) {
+	if s.Watcher != nil {
+		s.Watcher.Remove(realPath)
+
+		logrus.Printf("Pausing Watchers")
+	}
+}
+
+func (s *Server) EnableWatchers(realPath string) {
+	if s.Watcher != nil {
+		s.Watcher.Add(realPath)
+
+		logrus.Printf("Resuming Watchers")
+	}
 }

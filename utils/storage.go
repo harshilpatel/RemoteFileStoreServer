@@ -7,12 +7,15 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	"github.com/google/uuid"
 )
+
+var GlobalServer Server
 
 type UserRequestPackage struct {
 	ClientUser User
@@ -29,6 +32,8 @@ type ClientInstance struct {
 type Storage struct {
 	Users  map[string]User
 	Config ConfigCloudStore
+
+	mux sync.Mutex
 }
 
 func LoadOrCreateStorage(c ConfigCloudStore) Storage {
@@ -39,9 +44,24 @@ func LoadOrCreateStorage(c ConfigCloudStore) Storage {
 	return s
 }
 
-func (s *Storage) SaveObject(r *UserRequestPackage, data *[]byte) error {
+func (s *Storage) getUsers() map[string]User {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	return s.Users
+}
+
+func (s *Storage) getUser(key string) (User, bool) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	return s.Users[key], true
+}
+
+func (s *Storage) SaveObject(r UserRequestPackage, newVersion *int64) error {
 	logrus.Printf("Received request SaveObject %v %v\n", r.ClientUser.Username, r.Obj.Relativepath)
-	if u, ok := s.Users[r.ClientUser.Username]; ok {
+
+	if u, ok := s.getUser(r.ClientUser.Username); ok {
 		if u.Key != r.ClientUser.Key {
 			return errors.New("key doesn't match")
 		}
@@ -54,6 +74,11 @@ func (s *Storage) SaveObject(r *UserRequestPackage, data *[]byte) error {
 			file, err := os.OpenFile(realPath, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModePerm)
 			defer file.Close()
 
+			GlobalServer.PauseWatchers(realPath)
+			defer GlobalServer.EnableWatchers(realPath)
+
+			logrus.Printf("Pausing Watchers")
+
 			if err == nil {
 				defer file.Close()
 
@@ -61,6 +86,11 @@ func (s *Storage) SaveObject(r *UserRequestPackage, data *[]byte) error {
 					return errors.New(fmt.Sprintf("Could not save data %v", e))
 				}
 				// logrus.Printf("created new file")
+				if obj, ok := u.GetObject(r.Obj.Relativepath); ok {
+					obj.Version = r.Obj.Version
+					u.UpdateObject(obj)
+				}
+
 				return nil
 			}
 		case "Create":
@@ -70,10 +100,20 @@ func (s *Storage) SaveObject(r *UserRequestPackage, data *[]byte) error {
 			if err == nil {
 				defer file.Close()
 
+				GlobalServer.PauseWatchers(realPath)
+				defer GlobalServer.EnableWatchers(realPath)
+
+				logrus.Printf("Pausing Watchers")
+
 				if _, e := file.Write(r.Data); e != nil {
 					return errors.New(fmt.Sprintf("Could not save data %v", e))
 				}
-				// logrus.Debugln("created new file")
+				if obj, ok := u.GetObject(r.Obj.Relativepath); ok {
+					obj.Version = r.Obj.Version
+					// *newVersion = obj.Version
+					u.UpdateObject(obj)
+				}
+
 				return nil
 			}
 		}
@@ -94,8 +134,14 @@ func (s *Storage) DownloadObject(inputPack UserRequestPackage, pack *UserRequest
 
 	if localUser, ok := s.Users[inputPack.ClientUser.Username]; ok {
 		if localUser.Key == inputPack.ClientUser.Key {
+			localUser.mux.Lock()
 			obj := localUser.Objects[inputPack.Obj.Relativepath]
 			realPath := obj.GetRealPath(localUser, s.Config)
+
+			GlobalServer.PauseWatchers(realPath)
+			defer GlobalServer.EnableWatchers(realPath)
+
+			logrus.Printf("Pausing Watchers")
 
 			if data, err := ioutil.ReadFile(realPath); err == nil {
 				pack.Data = data
@@ -104,6 +150,7 @@ func (s *Storage) DownloadObject(inputPack UserRequestPackage, pack *UserRequest
 			} else {
 				logrus.Errorln(err)
 			}
+			localUser.mux.Unlock()
 		}
 	}
 
@@ -116,14 +163,17 @@ func (s *Storage) VerifyObject(pack *UserRequestPackage, response *int) error {
 		"User": pack.ClientUser.Username,
 	}).Debugf("Received request VerifyObject")
 
-	if user, ok := s.Users[pack.ClientUser.Username]; ok {
-		if serverObject, okay := user.Objects[pack.Obj.Relativepath]; okay {
+	if user, ok := s.getUser(pack.ClientUser.Username); ok {
+		if serverObject, ok := user.GetObject(pack.Obj.Relativepath); ok {
 			*response = 0
 			if !bytes.Equal(serverObject.HashOfFile, pack.Obj.HashOfFile) || serverObject.Version != pack.Obj.Version {
 				logrus.WithFields(logrus.Fields{"Reason": "Hash Mismatch or Version Mismatch"}).Infof("Request to Alter")
 				*response = 2
-				if serverObject.LastWritten.After(pack.Obj.LastWritten) || serverObject.Version > pack.Obj.Version {
+				// Upload
+				// if serverObject.Version > pack.Obj.Version || serverObject.LastWritten.After(pack.Obj.LastWritten) {
+				if serverObject.Version > pack.Obj.Version {
 					*response = 1
+					// Download
 					logrus.WithFields(logrus.Fields{"Reason": "Local Copy is New"}).Infof("Request to Push to Client")
 				}
 			}
@@ -146,7 +196,7 @@ func (s *Storage) VerifyUser(u *string, p *string) error {
 		"User": *u,
 	}).Debugf("Received request VerifyUser")
 
-	if user, ok := s.Users[*u]; ok {
+	if user, ok := s.getUser(*u); ok {
 		if user.Key == *p {
 			return nil
 		}
