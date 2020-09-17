@@ -51,7 +51,6 @@ func main() {
 	// }
 
 	// server.RegisterUser(sampleUser1)
-	server.InitiateWatchers()
 
 	server.Housekeeping()
 
@@ -63,6 +62,8 @@ func main() {
 	server.Listen()
 
 	<-sigs // receive shutdown signal
+
+	server.InitiateWatchers()
 	server.Watcher.Close()
 	server.Watcher = nil
 
